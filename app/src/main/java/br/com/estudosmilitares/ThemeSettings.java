@@ -2,7 +2,7 @@ package br.com.estudosmilitares;
 
 import android.content.Context;
 import android.content.SharedPreferences;
-g
+
 /** Preferências visuais persistidas do aplicativo. */
 public final class ThemeSettings {
     private static final String PREFS = "estudos_militares";
