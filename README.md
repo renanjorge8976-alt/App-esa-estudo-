@@ -11,18 +11,18 @@ Aplicativo Android nativo para organizar a preparação para ESA, EsPCEx e EEAR.
 - Seleção de concurso-alvo: ESA, EsPCEx ou EEAR.
 - Persistência local no aparelho com `SharedPreferences`.
 
-## Camada de dados incluída
+## Camada de dados local
 
-`app/src/main/java/br/com/estudosmilitares/AppStore.java` fornece métodos para guardar e editar:
+`app/src/main/java/br/com/estudosmilitares/AppStore.java` fornece operações para perfil, matérias, materiais de estudo e cronograma:
 
 - Nome e URI da foto do perfil.
-- Matérias.
-- Materiais de estudo (título, descrição e link).
-- Sessões do cronograma, com matéria, conteúdo, data, horário e duração.
-- Calendário mensal com contagem de sessões planejadas e concluídas por dia.
-- Sequência de dias estudados (`getStudyStreak`).
+- Criar, editar e remover matérias.
+- Criar, editar e remover materiais (título, descrição e link).
+- Sessões de estudo com matéria, conteúdo, data, horário, duração e status.
+- Consultar sessões por data e preencher dados do calendário mensal.
+- Calcular sequência de dias com sessão concluída.
 
-Exemplo de inicialização na `MainActivity`:
+Exemplo de uso:
 
 ```java
 AppStore store = new AppStore(this);
@@ -34,9 +34,13 @@ int sequencia = store.getStudyStreak();
 JSONArray diasDoMes = store.getCalendarMonth(2026, 10); // mês 0-based: 10 = novembro
 ```
 
-Datas do cronograma devem ser informadas no formato `yyyy-MM-dd`; horários, no formato `HH:mm`. Para calcular a sequência, marque sessões concluídas com `setStudySessionDone(id, true)`. O cálculo considera as datas das sessões concluídas.
+Datas devem usar `yyyy-MM-dd`, horários `HH:mm` e a duração deve ser de 1 a 1440 minutos. Para contar um dia na sequência, conclua a sessão com `setStudySessionDone(id, true)`.
 
-> A camada de dados salva as informações localmente neste aparelho; ela não sincroniza automaticamente com outros aparelhos ou com um servidor. A interface atual ainda precisa chamar esses métodos para apresentar formulários de perfil, materiais e calendário ao usuário.
+## Limitações e próximos passos
+
+Esta é uma camada de dados local para um MVP/offline de um único aparelho; não é um servidor e não sincroniza dados entre dispositivos. A interface precisa chamar `AppStore` para oferecer as telas de perfil, materiais e calendário. Para uso com contas, sincronização e recuperação de dados, o próximo passo é integrar um backend remoto com autenticação, API e banco de dados. Para grandes volumes e consultas complexas, também é recomendável migrar as listas JSON para Room/SQLite.
+
+A foto é guardada como URI. Ao escolher uma imagem, use o seletor de fotos do Android e persista a permissão de leitura da URI para que o acesso continue após reiniciar o app.
 
 ## Abrir e executar
 

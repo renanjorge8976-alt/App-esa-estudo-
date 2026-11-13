@@ -18,19 +18,22 @@ import java.util.UUID;
 
 /**
  * Camada de dados local do Estudos Militares.
- * Guarda perfil, matérias, materiais e sessões no aparelho com SharedPreferences.
- * Datas usam o formato yyyy-MM-dd e horários HH:mm.
+ * Adequada para um MVP/offline de um único aparelho. Para login e sincronização
+ * entre aparelhos, os dados devem ser migrados para um serviço remoto.
+ * Datas usam yyyy-MM-dd e horários HH:mm.
  */
 public final class AppStore {
     private static final String PREFS = "estudos_militares";
     private static final String SUBJECTS_KEY = "custom_subjects";
     private static final String MATERIALS_KEY = "study_materials";
-    // Reutiliza a chave já usada pela MainActivity para manter as sessões existentes.
+    // Mantém compatibilidade com as sessões já salvas pela MainActivity.
     private static final String SESSIONS_KEY = "sessions";
+    private static final int MAX_DURATION_MINUTES = 24 * 60;
 
     private final SharedPreferences prefs;
 
     public AppStore(Context context) {
+        if (context == null) throw new IllegalArgumentException("Context não pode ser nulo");
         prefs = context.getApplicationContext()
                 .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
@@ -50,11 +53,8 @@ public final class AppStore {
     }
 
     public void setProfilePhotoUri(String uri) {
-        if (uri == null || uri.trim().isEmpty()) {
-            prefs.edit().remove("profile_photo_uri").apply();
-        } else {
-            prefs.edit().putString("profile_photo_uri", uri).apply();
-        }
+        if (isBlank(uri)) prefs.edit().remove("profile_photo_uri").apply();
+        else prefs.edit().putString("profile_photo_uri", uri.trim()).apply();
     }
 
     // Matérias
@@ -135,15 +135,17 @@ public final class AppStore {
     /** Cria uma sessão para uma data específica (yyyy-MM-dd). */
     public JSONObject addStudySession(String subject, String topic, String date,
                                        String time, int durationMinutes) {
-        if (isBlank(subject) || isBlank(topic) || !isValidDate(date)) return null;
+        if (isBlank(subject) || isBlank(topic) || !isValidDate(date)
+                || !isValidTime(time) || !isValidDuration(durationMinutes)) return null;
         JSONObject item = new JSONObject();
         try {
             item.put("id", newId());
             item.put("subject", subject.trim());
             item.put("topic", topic.trim());
             item.put("date", date.trim());
-            item.put("time", isBlank(time) ? "14:00" : time.trim());
-            item.put("duration", Math.max(1, durationMinutes));
+            item.put("time", time.trim());
+            // Mantém o nome "duration" usado pela MainActivity existente.
+            item.put("duration", durationMinutes);
             item.put("done", false);
             append(SESSIONS_KEY, item);
             return item;
@@ -154,14 +156,15 @@ public final class AppStore {
 
     public boolean updateStudySession(String id, String subject, String topic,
                                       String date, String time, int durationMinutes) {
-        if (isBlank(subject) || isBlank(topic) || !isValidDate(date)) return false;
+        if (isBlank(subject) || isBlank(topic) || !isValidDate(date)
+                || !isValidTime(time) || !isValidDuration(durationMinutes)) return false;
         JSONObject changes = new JSONObject();
         try {
             changes.put("subject", subject.trim());
             changes.put("topic", topic.trim());
             changes.put("date", date.trim());
-            changes.put("time", isBlank(time) ? "14:00" : time.trim());
-            changes.put("duration", Math.max(1, durationMinutes));
+            changes.put("time", time.trim());
+            changes.put("duration", durationMinutes);
             return update(SESSIONS_KEY, id, changes);
         } catch (JSONException e) {
             return false;
@@ -182,12 +185,27 @@ public final class AppStore {
         return delete(SESSIONS_KEY, id);
     }
 
+    /** Retorna sessões da data solicitada (yyyy-MM-dd). */
+    public JSONArray getStudySessionsForDate(String date) {
+        JSONArray result = new JSONArray();
+        if (!isValidDate(date)) return result;
+        JSONArray sessions = getStudySessions();
+        for (int i = 0; i < sessions.length(); i++) {
+            JSONObject session = sessions.optJSONObject(i);
+            if (session != null && date.equals(session.optString("date"))) result.put(session);
+        }
+        return result;
+    }
+
     /**
-     * Retorna os dias do mês selecionado e indica se há sessão planejada/concluída.
-     * month é de 0 a 11, conforme java.util.Calendar.
+     * Retorna todos os dias do mês e a quantidade de sessões planejadas/concluídas.
+     * month segue java.util.Calendar: janeiro = 0, dezembro = 11.
      */
     public JSONArray getCalendarMonth(int year, int month) {
         JSONArray result = new JSONArray();
+        if (month < Calendar.JANUARY || month > Calendar.DECEMBER
+                || year < 1 || year > 9999) return result;
+
         Calendar cursor = Calendar.getInstance();
         cursor.clear();
         cursor.set(year, month, 1);
@@ -212,7 +230,7 @@ public final class AppStore {
                 entry.put("completed", completed);
                 result.put(entry);
             } catch (JSONException ignored) {
-                // Ignora somente a entrada inválida e continua com o calendário.
+                // Continua montando os demais dias do calendário.
             }
         }
         return result;
@@ -231,10 +249,9 @@ public final class AppStore {
         }
 
         Calendar day = Calendar.getInstance();
-        String today = formatDate(day.getTime());
-        // Se ainda não estudou hoje, a sequência pode continuar a partir de ontem.
-        if (!completedDays.contains(today)) day.add(Calendar.DAY_OF_YEAR, -1);
-
+        if (!completedDays.contains(formatDate(day.getTime()))) {
+            day.add(Calendar.DAY_OF_YEAR, -1);
+        }
         int streak = 0;
         while (completedDays.contains(formatDate(day.getTime()))) {
             streak++;
@@ -247,6 +264,7 @@ public final class AppStore {
         try {
             return new JSONArray(prefs.getString(key, "[]"));
         } catch (JSONException e) {
+            // Não sobrescreve os dados corrompidos até que uma alteração válida seja salva.
             return new JSONArray();
         }
     }
@@ -287,11 +305,8 @@ public final class AppStore {
         boolean removed = false;
         for (int i = 0; i < oldArray.length(); i++) {
             JSONObject item = oldArray.optJSONObject(i);
-            if (item != null && id.equals(item.optString("id"))) {
-                removed = true;
-            } else {
-                newArray.put(oldArray.opt(i));
-            }
+            if (item != null && id.equals(item.optString("id"))) removed = true;
+            else newArray.put(oldArray.opt(i));
         }
         if (removed) prefs.edit().putString(key, newArray.toString()).apply();
         return removed;
@@ -308,6 +323,19 @@ public final class AppStore {
         ParsePosition position = new ParsePosition(0);
         Date date = format.parse(value, position);
         return date != null && position.getIndex() == value.length();
+    }
+
+    private boolean isValidTime(String value) {
+        if (isBlank(value)) return false;
+        SimpleDateFormat format = new SimpleDateFormat("HH:mm", Locale.US);
+        format.setLenient(false);
+        ParsePosition position = new ParsePosition(0);
+        Date parsed = format.parse(value.trim(), position);
+        return parsed != null && position.getIndex() == value.trim().length();
+    }
+
+    private boolean isValidDuration(int minutes) {
+        return minutes >= 1 && minutes <= MAX_DURATION_MINUTES;
     }
 
     private String formatDate(Date date) {
