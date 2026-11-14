@@ -3,6 +3,7 @@ package br.com.estudosmilitares;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -17,7 +18,10 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-/** Tela nativa para criar, editar, abrir e remover materiais de estudo. */
+import java.text.SimpleDateFormat;
+import java.util.Locale;
+
+/** Tela para listar, adicionar, editar e remover materiais de estudo. */
 public class MaterialsActivity extends Activity {
     private static final int INK = Color.rgb(32, 46, 35);
     private static final int MUTED = Color.rgb(115, 128, 117);
@@ -47,9 +51,8 @@ public class MaterialsActivity extends Activity {
 
         TextView heading = text("Meus materiais", 25, INK, true);
         page.addView(heading);
-        TextView help = text("Cadastre apostilas, anotações e links de estudo.", 13, MUTED, false);
-        page.addView(help);
-        page.addView(button("＋  Adicionar material", this::showEditor));
+        page.addView(text("Cadastre apostilas, anotações e links de estudo.", 13, MUTED, false));
+        page.addView(button("＋ Adicionar material", accent, this::showEditor));
 
         ScrollView scroll = new ScrollView(this);
         list = new LinearLayout(this);
@@ -58,7 +61,8 @@ public class MaterialsActivity extends Activity {
         LinearLayout.LayoutParams scrollParams = new LinearLayout.LayoutParams(-1, 0, 1);
         scrollParams.topMargin = dp(12);
         page.addView(scroll, scrollParams);
-        page.addView(button("Voltar", this::finish));
+
+        page.addView(button("Voltar", accent, this::finish));
         setContentView(page);
 
         JSONArray materials = store.getMaterials();
@@ -66,13 +70,14 @@ public class MaterialsActivity extends Activity {
             list.addView(text("Ainda não há materiais. Toque em Adicionar material para começar.", 14, MUTED, false));
             return;
         }
+
         for (int i = 0; i < materials.length(); i++) {
             JSONObject item = materials.optJSONObject(i);
-            if (item != null) addMaterialCard(item);
+            if (item != null) addItemCard(item);
         }
     }
 
-    private void addMaterialCard(JSONObject item) {
+    private void addItemCard(JSONObject item) {
         String id = item.optString("id");
         String title = item.optString("title", "Material");
         String description = item.optString("description", "");
@@ -82,19 +87,26 @@ public class MaterialsActivity extends Activity {
         card.setOrientation(LinearLayout.VERTICAL);
         card.setBackgroundColor(Color.WHITE);
         card.setPadding(dp(14), dp(12), dp(14), dp(12));
-        card.setElevation(dp(1));
-        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2);
-        cardParams.bottomMargin = dp(10);
-        list.addView(card, cardParams);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = dp(10);
+        list.addView(card, params);
+
         card.addView(text(title, 17, INK, true));
-        if (!description.trim().isEmpty()) card.addView(text(description, 13, MUTED, false));
+        if (!description.trim().isEmpty()) {
+            card.addView(text(description, 13, MUTED, false));
+        }
+        if (!link.trim().isEmpty()) {
+            card.addView(text(link, 12, Color.rgb(32, 92, 143), false));
+        }
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
+        if (!link.trim().isEmpty()) {
+            actions.addView(button("Abrir", accent, () -> openUrl(link)), weightedParams());
+        }
+        actions.addView(button("Editar", accent, () -> showEditor(item)), weightedParams());
+        actions.addView(button("Excluir", accent, () -> deleteMaterial(id)), weightedParams());
         card.addView(actions);
-        if (!link.trim().isEmpty()) actions.addView(button("Abrir link", () -> openLink(link)), weighted());
-        actions.addView(button("Editar", () -> showEditor(item), weighted()));
-        actions.addView(button("Excluir", () -> confirmDelete(id), weighted());
     }
 
     private void showEditor() {
@@ -105,15 +117,18 @@ public class MaterialsActivity extends Activity {
         boolean editing = existing != null;
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
-        form.setPadding(dp(20), dp(4), dp(20), 0);
+        form.setPadding(dp(20), 0, dp(20), 0);
+
         EditText title = field("Título do material");
         EditText description = field("Descrição ou anotação");
-        EditText link = field("Link (opcional, https://...)");
+        EditText link = field("Link (https://...) ");
+
         if (editing) {
             title.setText(existing.optString("title"));
             description.setText(existing.optString("description"));
             link.setText(existing.optString("link"));
         }
+
         form.addView(title);
         form.addView(description);
         form.addView(link);
@@ -124,69 +139,67 @@ public class MaterialsActivity extends Activity {
                 .setNegativeButton("Cancelar", null)
                 .setPositiveButton("Salvar", null)
                 .create();
-        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            String newTitle = title.getText().toString().trim();
-            String newDescription = description.getText().toString().trim();
-            String newLink = link.getText().toString().trim();
-            if (newTitle.isEmpty()) {
-                title.setError("Informe um título");
-                return;
-            }
-            if (!newLink.isEmpty() && !isWebLink(newLink)) {
-                link.setError("Use um link começando com http:// ou https://");
-                return;
-            }
-            boolean saved;
-            if (editing) {
-                saved = store.updateMaterial(existing.optString("id"), newTitle, newDescription, newLink);
-            } else {
-                saved = store.addMaterial(newTitle, newDescription, newLink) != null;
-            }
-            if (!saved) {
-                toast("Não foi possível salvar o material.");
-                return;
-            }
-            dialog.dismiss();
-            render();
-        }));
+
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+                String newTitle = title.getText().toString().trim();
+                String newDescription = description.getText().toString().trim();
+                String newLink = link.getText().toString().trim();
+
+                if (newTitle.isEmpty()) {
+                    title.setError("Informe um título.");
+                    return;
+                }
+                if (!newLink.isEmpty() && !newLink.startsWith("http://") && !newLink.startsWith("https://")) {
+                    link.setError("Use link com http:// ou https://");
+                    return;
+                }
+
+                boolean ok;
+                if (editing) {
+                    ok = store.updateMaterial(existing.optString("id"), newTitle, newDescription, newLink);
+                } else {
+                    ok = store.addMaterial(newTitle, newDescription, newLink) != null;
+                }
+
+                if (!ok) {
+                    Toast.makeText(this, "Não foi possível salvar.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                dialog.dismiss();
+                render();
+            });
+        });
         dialog.show();
     }
 
-    private void confirmDelete(String id) {
+    private void deleteMaterial(String id) {
         new AlertDialog.Builder(this)
                 .setTitle("Excluir material?")
-                .setMessage("Esta ação não pode ser desfeita.")
+                .setMessage("Esta ação remove o material da sua lista.")
                 .setNegativeButton("Cancelar", null)
-                .setPositiveButton("Excluir", (d, w) -> {
+                .setPositiveButton("Excluir", (dialog, which) -> {
                     store.deleteMaterial(id);
                     render();
-                }).show();
+                })
+                .show();
     }
 
-    private void openLink(String value) {
-        if (!isWebLink(value)) {
-            toast("Este material não tem um link web válido.");
-            return;
-        }
+    private void openUrl(String url) {
         try {
-            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(value)));
+            startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url)));
         } catch (Exception e) {
-            toast("Não foi possível abrir o link.");
+            Toast.makeText(this, "Não foi possível abrir o link.", Toast.LENGTH_SHORT).show();
         }
-    }
-
-    private boolean isWebLink(String value) {
-        String lower = value.toLowerCase(java.util.Locale.ROOT);
-        return lower.startsWith("https://") || lower.startsWith("http://");
     }
 
     private EditText field(String hint) {
-        EditText edit = new EditText(this);
-        edit.setHint(hint);
-        return edit;
+        EditText input = new EditText(this);
+        input.setHint(hint);
+        return input;
     }
 
-    private LinearLayout.LayoutParams weighted() {
+    private LinearLayout.LayoutParams weightedParams() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, -2, 1);
         params.setMargins(dp(2), dp(6), dp(2), 0);
         return params;
@@ -201,17 +214,13 @@ public class MaterialsActivity extends Activity {
         return view;
     }
 
-    private Button button(String label, Runnable action) {
+    private Button button(String label, int color, Runnable action) {
         Button button = new Button(this);
         button.setText(label);
-        button.setAllCaps(false);
         button.setTextColor(Color.WHITE);
-        button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(accent));
+        button.setAllCaps(false);
+        button.setBackgroundTintList(ColorStateList.valueOf(color));
         button.setOnClickListener(v -> action.run());
         return button;
-    }
-
-    private void toast(String message) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
 }
