@@ -18,10 +18,9 @@ import android.widget.TextView;
 
 import java.io.InputStream;
 
-/** Tela inicial de perfil e personalização, conectada ao armazenamento local. */
+/** Tela inicial de perfil e atalhos para as áreas nativas do app. */
 public class ProfileActivity extends Activity {
     private static final int PICK_PHOTO = 41;
-    private static final int GREEN = Color.rgb(66, 100, 71);
     private static final int INK = Color.rgb(32, 46, 35);
     private static final int MUTED = Color.rgb(115, 128, 117);
     private static final int BG = Color.rgb(247, 248, 245);
@@ -34,16 +33,19 @@ public class ProfileActivity extends Activity {
 
     private AppStore store;
     private ThemeSettings themeSettings;
-    private LinearLayout root;
     private ImageView avatar;
     private TextView nameView, streakView;
-    private Button themeButton;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         store = new AppStore(this);
         themeSettings = new ThemeSettings(this);
         buildScreen();
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        if (streakView != null) refreshStreak();
     }
 
     private int dp(float value) {
@@ -55,16 +57,15 @@ public class ProfileActivity extends Activity {
         getWindow().setStatusBarColor(accent);
         getWindow().setNavigationBarColor(Color.WHITE);
 
-        root = new LinearLayout(this);
+        LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(BG);
-        root.setPadding(dp(20), dp(28), dp(20), dp(20));
+        root.setPadding(dp(20), dp(24), dp(20), dp(16));
 
         TextView heading = text("Estudos Militares", 25, INK, true);
         root.addView(heading);
-        TextView subtitle = text("Seu espaço de preparação", 14, MUTED, false);
-        root.addView(subtitle);
-        space(root, 22);
+        root.addView(text("Seu espaço de preparação", 14, MUTED, false));
+        space(root, 18);
 
         LinearLayout profile = new LinearLayout(this);
         profile.setGravity(Gravity.CENTER_VERTICAL);
@@ -79,37 +80,30 @@ public class ProfileActivity extends Activity {
         identity.setPadding(dp(14), 0, 0, 0);
         nameView = text(displayName(), 19, INK, true);
         identity.addView(nameView);
-        Button photoButton = button("Trocar foto", accent, this::pickPhoto);
-        identity.addView(photoButton);
+        identity.addView(button("Trocar foto", this::pickPhoto));
         profile.addView(identity, new LinearLayout.LayoutParams(0, -2, 1));
         root.addView(profile);
         loadPhoto();
 
-        Button editName = button("Editar meu nome", accent, this::editName);
-        root.addView(editName, matchWrap());
-        space(root, 16);
-
-        streakView = text("", 18, INK, true);
+        root.addView(button("Editar meu nome", this::editName), matchWrap());
+        space(root, 12);
+        streakView = text("", 17, INK, true);
         streakView.setGravity(Gravity.CENTER);
-        streakView.setPadding(dp(12), dp(16), dp(12), dp(16));
+        streakView.setPadding(dp(12), dp(14), dp(12), dp(14));
         streakView.setBackgroundColor(Color.WHITE);
         root.addView(streakView, matchWrap());
         refreshStreak();
-        space(root, 16);
-
-        TextView themeLabel = text("COR DO APLICATIVO", 12, MUTED, true);
-        root.addView(themeLabel);
-        themeButton = button("Escolher cor", accent, this::chooseTheme);
-        root.addView(themeButton, matchWrap());
         space(root, 12);
 
-        Button openStudy = button("Abrir meu app de estudos", accent, () -> {
-            startActivity(new Intent(this, MainActivity.class));
-        });
-        root.addView(openStudy, matchWrap());
+        root.addView(text("COR DO APLICATIVO", 12, MUTED, true));
+        root.addView(button("Escolher cor", this::chooseTheme), matchWrap());
+        space(root, 8);
+        root.addView(button("📚  Meus materiais", () -> open(MaterialsActivity.class)), matchWrap());
+        root.addView(button("📅  Calendário de estudos", () -> open(CalendarActivity.class)), matchWrap());
+        root.addView(button("Abrir área de estudos", () -> open(MainActivity.class)), matchWrap());
 
-        TextView note = text("A sequência conta dias com pelo menos uma sessão concluída. Seus dados ficam salvos neste aparelho.", 12, MUTED, false);
-        note.setPadding(0, dp(18), 0, 0);
+        TextView note = text("Os materiais e o cronograma ficam salvos neste aparelho. A sequência conta dias com ao menos uma sessão concluída.", 12, MUTED, false);
+        note.setPadding(0, dp(12), 0, 0);
         root.addView(note);
         setContentView(root);
     }
@@ -120,6 +114,7 @@ public class ProfileActivity extends Activity {
     }
 
     private void refreshStreak() {
+        if (streakView == null) return;
         int days = store.getStudyStreak();
         if (days >= 2) streakView.setText("🔥  " + days + " dias seguidos de estudo!");
         else if (days == 1) streakView.setText("🔥  1 dia de estudo — continue amanhã!");
@@ -163,7 +158,7 @@ public class ProfileActivity extends Activity {
             getContentResolver().takePersistableUriPermission(uri,
                     data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION));
         } catch (SecurityException ignored) {
-            // Algumas fontes de imagem não oferecem permissão persistente; ainda tentamos carregar a foto.
+            // Algumas fontes não oferecem permissão persistente; tentamos carregar a foto mesmo assim.
         }
         store.setProfilePhotoUri(uri.toString());
         loadPhoto();
@@ -196,6 +191,10 @@ public class ProfileActivity extends Activity {
                 .show();
     }
 
+    private void open(Class<?> activity) {
+        startActivity(new Intent(this, activity));
+    }
+
     private TextView text(String value, int size, int color, boolean bold) {
         TextView view = new TextView(this);
         view.setText(value);
@@ -205,19 +204,19 @@ public class ProfileActivity extends Activity {
         return view;
     }
 
-    private Button button(String label, int color, Runnable action) {
+    private Button button(String label, Runnable action) {
         Button button = new Button(this);
         button.setText(label);
         button.setAllCaps(false);
         button.setTextColor(Color.WHITE);
-        button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(color));
+        button.setBackgroundTintList(android.content.res.ColorStateList.valueOf(themeSettings.getAccentColor()));
         button.setOnClickListener(view -> action.run());
         return button;
     }
 
     private LinearLayout.LayoutParams matchWrap() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.topMargin = dp(8);
+        params.topMargin = dp(6);
         return params;
     }
 
